@@ -1,0 +1,54 @@
+-67.5 to -22.5 = (x+1, y-1) and (x-1, y+1)
+112.5 to 157.5 = 
+
+-22.5 to 22.5 = (x+1,y) and (x-1,y)
+157.5 to 180, -157.5 to -180 = 
+
+22.5 to 67.5 = (x+1, y+1) and (x-1,y-1)
+-157.5 to -112.5 = 
+
+67.5 to 112.5 = (x, y+1) and (x, y-1)
+-112.5 to -67.5 = 
+
+-180 to -135:
+
+
+-135 to -90:
+
+
+-90 to -45:
+
+
+-45 to 0:
+ori1 = i + 1, j
+side1 = i + 1, j - 1
+ori2 = i - 1, j
+side2 = i - 1, j + 1
+angle < -22.5:
+  (ori - side) + side
+else:
+  (size - ori) + ori 
+  
+
+0 to 45:
+ori1 = i + 1, j
+side1 = i + 1, j + 1
+ori2 = i - 1, j
+side2 = i - 1, j - 1
+angle < 22.5:
+  (ori - side) + side
+else:
+  (size - ori) + ori 
+
+45 to 90:
+
+90 to 135:
+
+135 to 180:
+
+
+
+ori1 = 
+side1 = 
+ori2 = 
+side2 = 

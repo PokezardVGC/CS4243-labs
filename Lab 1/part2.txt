@@ -1,0 +1,39 @@
+def normalized_cross_correlation(img, template):
+    """
+    10 points.
+    Implement the cross-correlation operation in a naive 6 nested for-loops. 
+    The 6 loops include the height, width, channel of the output and height, width and channel of the template.
+    :param img: numpy.ndarray.
+    :param template: numpy.ndarray.
+    :return response: numpy.ndarray. dtype: float
+    """
+    Hi, Wi = img.shape[:2]
+    Hk, Wk = template.shape[:2]
+    Ho = Hi - Hk + 1
+    Wo = Wi - Wk + 1
+
+    """ Your code starts here """
+    half_hk = Hk // 2
+    half_wk = Wk // 2
+    colours = template.shape[2] if len(template.shape) > 2 else 1
+    response = np.zeros((Ho, Wo), float)
+    template = template / np.sum(template)
+    template_norm = np.linalg.norm(template)
+    
+    for i in range(Ho):
+        for j in range(Wo):
+            new_pixel = 0
+            # img[][] != img[row, col]
+            curr_win = img[i : i + Hk, j : j + Hk]
+            window_norm = np.linalg.norm(curr_win)
+            
+            for u in range(-half_hk, half_hk):
+                for v in range(-half_wk, half_wk):
+                    for colour in range(colours):
+                        curr_pixel = template[u + half_hk, v + half_wk, colour] * img[u + half_hk + i, v + half_wk + j, colour]
+                        new_pixel += curr_pixel
+            new_pixel *= (1 / (template_norm * window_norm))
+            response[i, j] = new_pixel
+            
+    """ Your code ends here """
+    return response
