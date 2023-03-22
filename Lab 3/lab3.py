@@ -9,14 +9,14 @@ from scipy.ndimage import gaussian_filter
 from utils import pad, unpad
 import math
 import cv2
-_COLOR_RED = (255, 0, 0)
-_COLOR_GREEN = (0, 255, 0)
-_COLOR_BLUE = (0, 0, 255)
 
 _COLOR_RED = (255, 0, 0)
 _COLOR_GREEN = (0, 255, 0)
 _COLOR_BLUE = (0, 0, 255)
 
+_COLOR_RED = (255, 0, 0)
+_COLOR_GREEN = (0, 255, 0)
+_COLOR_BLUE = (0, 0, 255)
 
 
 ##### Part 1: Keypoint Detection, Description, and Matching #####
@@ -27,7 +27,7 @@ def harris_corners(img, window_size=3, k=0.04):
     R=Det(M)-k(Trace(M)^2).
 
     Hint:
-        You may use the functions filters.sobel_v filters.sobel_h & scipy.ndimage.filters.convolve, 
+        You may use the functions filters.sobel_v filters.sobel_h & scipy.ndimage.filters.convolve,
         which are already imported above
         
     Args:
@@ -39,15 +39,26 @@ def harris_corners(img, window_size=3, k=0.04):
         response: Harris response image of shape (H, W)
     '''
 
-    H, W= img.shape
+    H, W = img.shape
     window = np.ones((window_size, window_size))
-    response = np.zeros((H, W))
+    # response = np.zeros((H, W))
 
     """ Your code starts here """
-    
-    """ Your code ends here """ 
-    
+
+    dx = filters.sobel_h(img)
+    dy = filters.sobel_v(img)
+    A = convolve(np.square(dx), window, mode='constant', cval=0.0)
+    B = convolve(np.multiply(dx, dy), window, mode='constant', cval=0.0)
+    C = convolve(np.square(dy), window, mode='constant', cval=0.0)
+
+    det = np.subtract(np.multiply(A, C), np.square(B))
+    tr = np.add(A, C)
+    response = np.subtract(det, k * np.square(tr))
+
+    """ Your code ends here """
+
     return response
+
 
 def naive_descriptor(patch):
     '''
@@ -65,12 +76,18 @@ def naive_descriptor(patch):
         feature: 1D array of shape (h * w)
     '''
     feature = []
-    
+
     """ Your code starts here """
-    
+
+    mean = np.mean(patch)
+    sd = np.std(patch)
+    feature = np.divide(np.subtract(patch, mean), (sd + 0.0001)).flatten()
+    # feature.flatten()
+
     """ Your code ends here """
 
     return feature
+
 
 # GIVEN
 def describe_keypoints(image, keypoints, desc_func, patch_size=16):
@@ -90,12 +107,13 @@ def describe_keypoints(image, keypoints, desc_func, patch_size=16):
     desc = []
     for i, kp in enumerate(keypoints):
         y, x = kp
-        patch = image[np.max([0,y-(patch_size//2)]):y+((patch_size+1)//2),
-                      np.max([0,x-(patch_size//2)]):x+((patch_size+1)//2)]
-      
+        patch = image[np.max([0, y - (patch_size // 2)]):y + ((patch_size + 1) // 2),
+                np.max([0, x - (patch_size // 2)]):x + ((patch_size + 1) // 2)]
+
         desc.append(desc_func(patch))
-   
+
     return np.array(desc)
+
 
 # GIVEN
 def make_gaussian_kernel(ksize, sigma):
@@ -135,17 +153,56 @@ def simple_sift(patch):
     Returns:
         feature: 1D array of shape (128, )
     '''
-    
+
     # You can change the parameter sigma, which has been default to 3
-    weights = np.flipud(np.fliplr(make_gaussian_kernel(patch.shape[0],3)))
-    
-    histogram = np.zeros((4,4,8))
-    
+    weights = np.flipud(np.fliplr(make_gaussian_kernel(patch.shape[0], 3)))
+
+    histogram = np.zeros((4, 4, 8))
+
     """ Your code starts here """
-    
+    h, w = histogram.shape[:2]
+    dx = filters.sobel_h(patch)
+    dy = filters.sobel_v(patch)
+    mag = np.sqrt(np.add(np.square(dx), np.square(dy)))
+    ori = np.arctan2(dy, dx)
+    ori_ang = np.array([(180 / math.pi) * x for x in ori])
+
+    def get_index(ang):
+        if 0 <= ang and ang < 45:
+            return 0
+        elif 45 <= ang and ang < 90:
+            return 1
+        elif 90 <= ang and ang < 135:
+            return 2
+        elif 135 <= ang and ang < 180:
+            return 3
+        elif -180 <= ang and ang < -135:
+            return 4
+        elif -135 <= ang and ang < -90:
+            return 5
+        elif -90 <= ang and ang < -45:
+            return 6
+        else:
+            return 7
+
+    for row in range(h):
+        for col in range(w):
+            for r in range(4):
+                for c in range(4):
+                    pixel_r = row * 4 + r
+                    pixel_c = col * 4 + r
+                    pixel_index = get_index(ori_ang[pixel_r, pixel_c])
+                    weight = mag[pixel_r, pixel_c] * weights[pixel_r, pixel_c]
+                    histogram[row, col, pixel_index] += weight
+
+    feature = histogram.flatten()
+    feature_mag = np.sqrt(np.sum(np.square(feature)))
+    feature = feature / feature_mag
+
     """ Your code ends here """
 
     return feature
+
 
 def top_k_matches(desc1, desc2, k=2):
     '''
@@ -159,12 +216,19 @@ def top_k_matches(desc1, desc2, k=2):
          ...<truncated>
     '''
     match_pairs = []
-    
+
     """ Your code starts here """
-    
+
+    dis = cdist(desc1, desc2, metric='euclidean')
+
+    for i in range(len(desc1)):
+        k_nearest = sorted(enumerate(dis[i, :]), key=lambda x: x[1])[:k]
+        match_pairs.append((i, k_nearest))
+
     """ Your code ends here """
 
     return match_pairs
+
 
 def ratio_test_match(desc1, desc2, match_threshold):
     '''
@@ -188,14 +252,22 @@ def ratio_test_match(desc1, desc2, match_threshold):
     '''
     match_pairs = []
     top_2_matches = top_k_matches(desc1, desc2)
-    
+
     """ Your code starts here """
-    
+
+    for pairs in top_2_matches:
+        first = pairs[1][0]
+        second = pairs[1][1]
+        val = first[1] / second[1]
+        if val < match_threshold:
+            match_pairs.append([pairs[0], first[0]])
+
     """ Your code ends here """
 
     # Modify this line as you wish
     match_pairs = np.array(match_pairs)
     return match_pairs
+
 
 # GIVEN
 def compute_cv2_descriptor(im, method=cv2.SIFT_create()):
@@ -207,17 +279,18 @@ def compute_cv2_descriptor(im, method=cv2.SIFT_create()):
     Do note that the keypoints coordinate is (col, row)-(x,y) in OpenCV. We have changed it to (row,col)-(y,x) for you. (Consistent with out coordinate choice)
     '''
     kpts, descs = method.detectAndCompute(im, None)
-    
-    keypoints = np.array([(kp.pt[1],kp.pt[0]) for kp in kpts])
+
+    keypoints = np.array([(kp.pt[1], kp.pt[0]) for kp in kpts])
     angles = np.array([kp.angle for kp in kpts])
     sizes = np.array([kp.size for kp in kpts])
-    
+
     return keypoints, descs, angles, sizes
+
 
 ##### Part 2: Image Stitching #####
 
 # GIVEN
-def transform_homography(src, h_matrix, getNormalized = True):
+def transform_homography(src, h_matrix, getNormalized=True):
     '''
     Performs the perspective transformation of coordinates
 
@@ -235,9 +308,9 @@ def transform_homography(src, h_matrix, getNormalized = True):
     transformed = np.zeros_like(input_pts)
     transformed = h_matrix.dot(input_pts.transpose())
     if getNormalized:
-        transformed = transformed[:-1]/transformed[-1]
+        transformed = transformed[:-1] / transformed[-1]
     transformed = transformed.transpose().astype(np.float32)
-    
+
     return transformed
 
 
@@ -260,12 +333,13 @@ def compute_homography(src, dst):
         np.linalg.solve(), np.linalg.lstsq()
     '''
     h_matrix = np.eye(3, dtype=np.float64)
-  
+
     """ Your code starts here """
-    
+
     """ Your code ends here """
 
     return h_matrix
+
 
 def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_iters=500, delta=20):
     """
@@ -293,25 +367,28 @@ def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_ite
     N = matches.shape[0]
     n_samples = int(N * sampling_ratio)
 
-    matched1_unpad = keypoints1[matches[:,0]]
-    matched2_unpad = keypoints2[matches[:,1]]
+    matched1_unpad = keypoints1[matches[:, 0]]
+    matched2_unpad = keypoints2[matches[:, 1]]
 
     max_inliers = np.zeros(N)
     n_inliers = 0
 
     # RANSAC iteration start
-    
+
     """ Your code starts here """
-    
+
     """ Your code ends here """
-    
+
     return H, matches[max_inliers]
+
 
 ##### Part 3: Mirror Symmetry Detection #####
 
 # GIVEN 
 from skimage.feature import peak_local_max
-def find_peak_params(hspace, params_list,  window_size=1, threshold=0.5):
+
+
+def find_peak_params(hspace, params_list, window_size=1, threshold=0.5):
     '''
     Given a Hough space and a list of parameters range, compute the local peaks
     aka bins whose count is larger max_bin * threshold. The local peaks are computed
@@ -324,7 +401,8 @@ def find_peak_params(hspace, params_list,  window_size=1, threshold=0.5):
     for i in range(len(params_list)):
         assert hspace.shape[i] == len(params_list[i]), \
             f"Parameter length does not match size of the corresponding dimension:{len(params_list[i])} vs {hspace.shape[i]}"
-    peaks_indices = peak_local_max(hspace.copy(), exclude_border=False, threshold_rel=threshold, min_distance=window_size)
+    peaks_indices = peak_local_max(hspace.copy(), exclude_border=False, threshold_rel=threshold,
+                                   min_distance=window_size)
     peak_values = np.array([hspace[tuple(peaks_indices[j])] for j in range(len(peaks_indices))])
     res = []
     res.append(peak_values)
@@ -332,37 +410,41 @@ def find_peak_params(hspace, params_list,  window_size=1, threshold=0.5):
         res.append(params_list[i][peaks_indices.T[i]])
     return res
 
+
 # GIVEN
-def angle_with_x_axis(pi, pj):  
+def angle_with_x_axis(pi, pj):
     '''
     Compute the angle that the line connecting two points I and J make with the x-axis (mind our coordinate convention)
     Do note that the line direction is from point I to point J.
     '''
     # get the difference between point p1 and p2
-    y, x = pi[0]-pj[0], pi[1]-pj[1] 
-    
+    y, x = pi[0] - pj[0], pi[1] - pj[1]
+
     if x == 0:
-        return np.pi/2  
-    
-    angle = np.arctan(y/x)
+        return np.pi / 2
+
+    angle = np.arctan(y / x)
     if angle < 0:
         angle += np.pi
     return angle
+
 
 # GIVEN
 def midpoint(pi, pj):
     '''
     Get y and x coordinates of the midpoint of I and J
     '''
-    return (pi[0]+pj[0])/2, (pi[1]+pj[1])/2
+    return (pi[0] + pj[0]) / 2, (pi[1] + pj[1]) / 2
+
 
 # GIVEN
 def distance(pi, pj):
     '''
     Compute the Euclidean distance between two points I and J.
     '''
-    y,x = pi[0]-pj[0], pi[1]-pj[1] 
-    return np.sqrt(x**2+y**2)
+    y, x = pi[0] - pj[0], pi[1] - pj[1]
+    return np.sqrt(x ** 2 + y ** 2)
+
 
 def shift_sift_descriptor(desc):
     '''
@@ -412,12 +494,13 @@ def shift_sift_descriptor(desc):
        [167.,  12.,   0.,   0.,  29.,   4.,   1.,   3.],
        [ 50.,   4.,   0.,   0.,   0.,   0.,   0.,   0.]]
     '''
-    
+
     """ Your code starts here """
-    
+
     """ Your code ends here """
-    
+
     return res
+
 
 def create_mirror_descriptors(img):
     '''
@@ -425,14 +508,15 @@ def create_mirror_descriptors(img):
     Also return the set of virtual mirror descriptors.
     Make sure the virtual descriptors correspond to the original set of descriptors.
     '''
-    
+
     """ Your code starts here """
-    
+
     """ Your code ends here """
-    
+
     return kps, descs, sizes, angles, mir_descs
 
-def match_mirror_descriptors(descs, mirror_descs, threshold = 0.7):
+
+def match_mirror_descriptors(descs, mirror_descs, threshold=0.7):
     '''
     First use `top_k_matches` to find the nearest 3 matches for each keypoint. Then eliminate the mirror descriptor that comes 
     from the same keypoint. Perform ratio test on the two matches left. If no descriptor is eliminated, perform the ratio test 
@@ -442,11 +526,10 @@ def match_mirror_descriptors(descs, mirror_descs, threshold = 0.7):
 
     match_result = []
 
-    
     """ Your code starts here """
-    
+
     """ Your code ends here """
-    
+
     return match_result
 
 
@@ -458,12 +541,13 @@ def find_symmetry_lines(matches, kps):
     '''
     rhos = []
     thetas = []
-    
+
     """ Your code starts here """
-    
+
     """ Your code ends here """
-    
+
     return rhos, thetas
+
 
 def hough_vote_mirror(matches, kps, im_shape, window=1, threshold=0.5, num_lines=1):
     '''
@@ -473,25 +557,25 @@ def hough_vote_mirror(matches, kps, im_shape, window=1, threshold=0.5, num_lines
     Feel free to vary the interval size.
     '''
     rhos, thetas = find_symmetry_lines(matches, kps)
-    
+
     """ Your code starts here """
-    
+
     """ Your code ends here """
-    
+
     return rho_values, theta_values
-
-
 
 
 """Helper functions: You should not have to touch the following functions.
 """
+
+
 def trim(frame):
     if not np.sum(frame[0]):
         return trim(frame[1:])
     if not np.sum(frame[-1]):
         return trim(frame[:-2])
-    if not np.sum(frame[:,0]):
-        return trim(frame[:,1:])
-    if not np.sum(frame[:,-1]):
-        return trim(frame[:,:-2])
+    if not np.sum(frame[:, 0]):
+        return trim(frame[:, 1:])
+    if not np.sum(frame[:, -1]):
+        return trim(frame[:, :-2])
     return frame
