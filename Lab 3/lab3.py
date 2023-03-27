@@ -336,6 +336,62 @@ def compute_homography(src, dst):
 
     """ Your code starts here """
 
+    src = np.hstack([src, np.ones((src.shape[0], 1))])
+    dst = np.hstack([dst, np.ones((dst.shape[0], 1))])
+
+    # m=(mx, my)
+    # s=(sx,sy)
+    src_mx = np.mean(src[:, 0])
+    src_my = np.mean(src[:, 1])
+    src_sd = np.std(src) / np.sqrt(2)  # should we use sd or twice sd?
+
+    dst_mx = np.mean(dst[:, 0])
+    dst_my = np.mean(dst[:, 1])
+    dst_sd = np.std(dst) / np.sqrt(2)  # should we use sd or twice sd?
+
+    # q_i = (p_i - m) / s
+    # do we need check q_i = 0? What is small engh to consider (0, 0)?
+    src_q = np.divide(np.subtract(src[:, :2], np.hstack([src_mx, src_my])), src_sd)
+    dst_q = np.divide(np.subtract(dst[:, :2], np.hstack([dst_mx, dst_my])), dst_sd)
+    # print(sum(src_q))
+    # print(sum(dst_q))
+
+    # T = [[1/sx, 0, -mx/sx], [0, 1/sy, -my/sy], [0, 0, 1]]
+    src_T = [[1 / src_sd, 0, - (src_mx / src_sd)], [0, 1 / src_sd, -(src_my / src_sd)], [0, 0, 1]]
+    dst_T = [[1 / dst_sd, 0, - (dst_mx / dst_sd)], [0, 1 / dst_sd, -(dst_my / dst_sd)], [0, 0, 1]]
+
+    # q = T p
+    src_q = np.matmul(src_T, src.T).T
+    dst_q = np.matmul(dst_T, dst.T).T
+
+    # 1. For each correspondence, create 2x9 matrix Ai
+    # 2. Concatenate into single 2n x 9 matrix A
+    A = np.zeros((0, 9))
+    # print(A)
+    for i in range(len(src_q)):
+        x = src_q[i][0]
+        y = src_q[i][1]
+        x_prime = dst_q[i][0]
+        y_prime = dst_q[i][1]
+        A1 = np.array([-x, -y, -1, 0, 0, 0, x * x_prime, y * x_prime, x_prime])
+        A2 = np.array([0, 0, 0, -x, -y, -1, x * y_prime, y * y_prime, y_prime])
+        Ai = np.vstack([A1, A2])
+        A = np.vstack([A, Ai])
+    # print(A.shape)
+
+    # 3. Compute SVD
+    U, S, Vt = np.linalg.svd(A)
+
+    min_s = min(S)
+    min_index = np.where(S == min_s)
+    min_vector = Vt[min_index]
+
+    K = min_vector.reshape((3, 3))
+
+    # H = inv(T') K T
+    h_matrix = np.matmul(np.matmul(np.linalg.inv(dst_T), K), src_T)
+
+
     """ Your code ends here """
 
     return h_matrix
