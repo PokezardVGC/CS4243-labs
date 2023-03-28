@@ -1,5 +1,7 @@
 """ CS4243 Lab 3: Feature Matching and Applications
 """
+import random
+
 import numpy as np
 from skimage import filters
 from skimage.feature import corner_peaks
@@ -39,7 +41,7 @@ def harris_corners(img, window_size=3, k=0.04):
         response: Harris response image of shape (H, W)
     '''
 
-    H, W = img.shape
+    #H, W = img.shape
     window = np.ones((window_size, window_size))
     # response = np.zeros((H, W))
 
@@ -160,44 +162,28 @@ def simple_sift(patch):
     histogram = np.zeros((4, 4, 8))
 
     """ Your code starts here """
-    h, w = histogram.shape[:2]
+
     dx = filters.sobel_h(patch)
     dy = filters.sobel_v(patch)
-    mag = np.sqrt(np.add(np.square(dx), np.square(dy)))
-    ori = np.arctan2(dy, dx)
-    ori_ang = np.array([(180 / math.pi) * x for x in ori])
 
-    def get_index(ang):
-        if 0 <= ang and ang < 45:
-            return 0
-        elif 45 <= ang and ang < 90:
-            return 1
-        elif 90 <= ang and ang < 135:
-            return 2
-        elif 135 <= ang and ang < 180:
-            return 3
-        elif -180 <= ang and ang < -135:
-            return 4
-        elif -135 <= ang and ang < -90:
-            return 5
-        elif -90 <= ang and ang < -45:
-            return 6
-        else:
-            return 7
+    # qn stated to precalc the weights and changing angles to range [0, 360)
+    mag_weighted = np.sqrt(np.add(np.square(dx), np.square(dy))) * weights
+    ori = np.arctan2(dx, dy)
+    ori = np.mod((ori * 180 / math.pi) + 180, 360)
 
-    for row in range(h):
-        for col in range(w):
-            for r in range(4):
-                for c in range(4):
-                    pixel_r = row * 4 + r
-                    pixel_c = col * 4 + r
-                    pixel_index = get_index(ori_ang[pixel_r, pixel_c])
-                    weight = mag[pixel_r, pixel_c] * weights[pixel_r, pixel_c]
-                    histogram[row, col, pixel_index] += weight
+    def window(ls, x, y):
+        return ls[4 * y:4 * y + 4, 4 * x:4 * x + 4]
+
+    for x in range(4):
+        for y in range(4):
+            current_orientation = window(ori, x, y)
+            current_weights = window(mag_weighted, x, y)
+
+            histogram[y, x] = np.histogram(current_orientation, bins=8, range=(0, 360), weights=current_weights)[0]
 
     feature = histogram.flatten()
-    feature_mag = np.sqrt(np.sum(np.square(feature)))
-    feature = feature / feature_mag
+    norm = np.linalg.norm(feature)
+    feature = np.divide(feature, norm)
 
     """ Your code ends here """
 
@@ -336,6 +322,9 @@ def compute_homography(src, dst):
 
     """ Your code starts here """
 
+    src = np.copy(src)
+    dst = np.copy(dst)
+
     src = np.hstack([src, np.ones((src.shape[0], 1))])
     dst = np.hstack([dst, np.ones((dst.shape[0], 1))])
 
@@ -343,22 +332,24 @@ def compute_homography(src, dst):
     # s=(sx,sy)
     src_mx = np.mean(src[:, 0])
     src_my = np.mean(src[:, 1])
-    src_sd = np.std(src) / np.sqrt(2)  # should we use sd or twice sd?
+    src_sx = np.std(src[:, 0]) * (1 / np.sqrt(2))
+    src_sy = np.std(src[:, 1]) * (1 / np.sqrt(2)) # should we use sd or twice sd?
 
     dst_mx = np.mean(dst[:, 0])
     dst_my = np.mean(dst[:, 1])
-    dst_sd = np.std(dst) / np.sqrt(2)  # should we use sd or twice sd?
+    dst_sx = np.std(dst[:, 0]) * (1 / np.sqrt(2))
+    dst_sy = np.std(dst[:, 1]) * (1 / np.sqrt(2)) # should we use sd or twice sd?
 
     # q_i = (p_i - m) / s
     # do we need check q_i = 0? What is small engh to consider (0, 0)?
-    src_q = np.divide(np.subtract(src[:, :2], np.hstack([src_mx, src_my])), src_sd)
-    dst_q = np.divide(np.subtract(dst[:, :2], np.hstack([dst_mx, dst_my])), dst_sd)
+    src_q = np.divide(np.subtract(src[:, :2], np.hstack([src_mx, src_my])), src_sx)
+    dst_q = np.divide(np.subtract(dst[:, :2], np.hstack([dst_mx, dst_my])), dst_sy)
     # print(sum(src_q))
     # print(sum(dst_q))
 
     # T = [[1/sx, 0, -mx/sx], [0, 1/sy, -my/sy], [0, 0, 1]]
-    src_T = [[1 / src_sd, 0, - (src_mx / src_sd)], [0, 1 / src_sd, -(src_my / src_sd)], [0, 0, 1]]
-    dst_T = [[1 / dst_sd, 0, - (dst_mx / dst_sd)], [0, 1 / dst_sd, -(dst_my / dst_sd)], [0, 0, 1]]
+    src_T = [[1 / src_sx, 0, - np.divide(src_mx, src_sx)], [0, 1 / src_sy, -np.divide(src_my, src_sy)], [0, 0, 1]]
+    dst_T = [[1 / dst_sx, 0, - np.divide(dst_mx, dst_sx)], [0, 1 / dst_sy, -np.divide(dst_my, dst_sy)], [0, 0, 1]]
 
     # q = T p
     src_q = np.matmul(src_T, src.T).T
@@ -367,7 +358,6 @@ def compute_homography(src, dst):
     # 1. For each correspondence, create 2x9 matrix Ai
     # 2. Concatenate into single 2n x 9 matrix A
     A = np.zeros((0, 9))
-    # print(A)
     for i in range(len(src_q)):
         x = src_q[i][0]
         y = src_q[i][1]
@@ -382,10 +372,12 @@ def compute_homography(src, dst):
     # 3. Compute SVD
     U, S, Vt = np.linalg.svd(A)
 
+    # 4. Store singular vector of smallest singular value
     min_s = min(S)
     min_index = np.where(S == min_s)
     min_vector = Vt[min_index]
 
+    # 5. Reshape to get H
     K = min_vector.reshape((3, 3))
 
     # H = inv(T') K T
@@ -397,7 +389,7 @@ def compute_homography(src, dst):
     return h_matrix
 
 
-def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_iters=500, delta=20):
+def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_iters=500, delta=20, seed = 20):
     """
     Use RANSAC to find a robust affine transformation
 
@@ -432,6 +424,34 @@ def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_ite
     # RANSAC iteration start
 
     """ Your code starts here """
+
+    H = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
+
+    for i in range(n_iters):
+
+        # set seed to ensure reproducable results
+        np.random.seed(seed)
+        rand_index = np.random.choice(N, size=n_samples, replace=False)
+        keypoint_1 = matched1_unpad[rand_index]
+        keypoint_2 = matched2_unpad[rand_index]
+
+        # our H for each keypoint matches
+        h = compute_homography(keypoint_1, keypoint_2)
+
+        # Perform pespective transformation to get projected keypoints
+        keypoint2_prime = transform_homography(matched1_unpad, h)
+
+        # find index of inlier points
+        diff = np.linalg.norm(keypoint2_prime - matched2_unpad, axis=1)
+        index_inliers = diff < delta
+
+        if n_inliers < len(index_inliers):
+            n_inliers = len(index_inliers)
+            max_inliers = index_inliers
+
+    # return best results
+    H = compute_homography(matched1_unpad[max_inliers], matched2_unpad[max_inliers])
+
 
     """ Your code ends here """
 
