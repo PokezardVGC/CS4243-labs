@@ -41,7 +41,7 @@ def harris_corners(img, window_size=3, k=0.04):
         response: Harris response image of shape (H, W)
     '''
 
-    #H, W = img.shape
+    # H, W = img.shape
     window = np.ones((window_size, window_size))
     # response = np.zeros((H, W))
 
@@ -333,12 +333,12 @@ def compute_homography(src, dst):
     src_mx = np.mean(src[:, 0])
     src_my = np.mean(src[:, 1])
     src_sx = np.std(src[:, 0]) * (1 / np.sqrt(2))
-    src_sy = np.std(src[:, 1]) * (1 / np.sqrt(2)) # should we use sd or twice sd?
+    src_sy = np.std(src[:, 1]) * (1 / np.sqrt(2))  # should we use sd or twice sd?
 
     dst_mx = np.mean(dst[:, 0])
     dst_my = np.mean(dst[:, 1])
     dst_sx = np.std(dst[:, 0]) * (1 / np.sqrt(2))
-    dst_sy = np.std(dst[:, 1]) * (1 / np.sqrt(2)) # should we use sd or twice sd?
+    dst_sy = np.std(dst[:, 1]) * (1 / np.sqrt(2))  # should we use sd or twice sd?
 
     # q_i = (p_i - m) / s
     # do we need check q_i = 0? What is small engh to consider (0, 0)?
@@ -383,13 +383,12 @@ def compute_homography(src, dst):
     # H = inv(T') K T
     h_matrix = np.matmul(np.matmul(np.linalg.inv(dst_T), K), src_T)
 
-
     """ Your code ends here """
 
     return h_matrix
 
 
-def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_iters=500, delta=20, seed = 20):
+def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_iters=500, delta=20, seed=20):
     """
     Use RANSAC to find a robust affine transformation
 
@@ -451,7 +450,6 @@ def ransac_homography(keypoints1, keypoints2, matches, sampling_ratio=0.5, n_ite
 
     # return best results
     H = compute_homography(matched1_unpad[max_inliers], matched2_unpad[max_inliers])
-
 
     """ Your code ends here """
 
@@ -573,6 +571,26 @@ def shift_sift_descriptor(desc):
 
     """ Your code starts here """
 
+    res = np.zeros_like(desc)
+
+    for i, row in enumerate(desc):
+
+        # we get the desired 16 x 8 first
+        reshape_r = np.reshape(row, (16, 8))
+        reshape_ls = np.zeros_like(reshape_r)
+
+        for j in range(12, -4, -4):
+            for k in range(0, 4):
+                # we copy over the desired elements
+                reshape_ls[12 - j + k][0] = reshape_r[j + k][0]
+
+                # 2nd to last element we flip
+                reshape_ls[12 - j + k][1:] = np.flip(reshape_r[j + k][1:])
+
+        res[i] = np.reshape(reshape_ls, (128,))
+
+    # res = np.array(res)
+
     """ Your code ends here """
 
     return res
@@ -586,6 +604,9 @@ def create_mirror_descriptors(img):
     '''
 
     """ Your code starts here """
+
+    kps, descs, angles, sizes = compute_cv2_descriptor(img, method=cv2.SIFT_create())
+    mir_descs = shift_sift_descriptor(descs)
 
     """ Your code ends here """
 
@@ -604,6 +625,27 @@ def match_mirror_descriptors(descs, mirror_descs, threshold=0.7):
 
     """ Your code starts here """
 
+    for descriptors, top_3_descriptors in three_matches:
+        # print(top_3_descriptors)
+        dis_1, dis_2, dis_1_index = -1, -1, -1  # coding like in cpp....
+        try:
+            for curr_descriptor in top_3_descriptors:
+                # for every discriptor, we check if it's the same index, if not keep since no need "flip"
+                if curr_descriptor[0] != descriptors:
+                    if dis_1 == -1:
+                        dis_1 = curr_descriptor[1]
+                        dis_1_index = curr_descriptor[0]
+                    elif dis_2 == -1:
+                        dis_2 = curr_descriptor[1]
+
+            ratio = dis_1 / dis_2
+            if ratio < threshold:
+                match_result.append([descriptors, dis_1_index])
+        except:
+            continue
+
+    match_result = np.array(match_result)
+
     """ Your code ends here """
 
     return match_result
@@ -619,6 +661,21 @@ def find_symmetry_lines(matches, kps):
     thetas = []
 
     """ Your code starts here """
+
+    for keypoint_1, keypoint_2 in matches:
+        coord_1 = kps[keypoint_1]
+        coord_2 = kps[keypoint_2]
+        coord_midpt = midpoint(coord_1, coord_2)
+
+        curr_theta = angle_with_x_axis(coord_1, coord_2)
+        thetas.append(curr_theta)
+
+        # rho = x_m * cos(theta_m) + y_m + sin(theta_m)
+        curr_rho = coord_midpt[0] * math.sin(curr_theta) + coord_midpt[1] * math.cos(curr_theta)
+        rhos.append(curr_rho)
+
+    rhos = np.array(rhos)
+    thetas = np.array(thetas)
 
     """ Your code ends here """
 
@@ -636,9 +693,34 @@ def hough_vote_mirror(matches, kps, im_shape, window=1, threshold=0.5, num_lines
 
     """ Your code starts here """
 
+    height = im_shape[0]
+    width = im_shape[1]
+
+    rho_max = np.sqrt(height ** 2 + width ** 2)
+
+    # we add extra +1 for the "last entry"
+    T = np.arange(0, 2 * math.pi + (np.pi / 180), np.pi / 180)
+    R = np.arange(-rho_max, rho_max + 1, 1)
+    A = np.zeros((R.shape[0], T.shape[0]))
+
+    for i in range(len(thetas)):
+        theta = thetas[i]
+        rho = rhos[i]
+
+        # increasing bin count
+        index_theta = np.argmax(theta <= T)
+        index_rho = np.argmax(rho <= R)
+
+        A[index_rho][index_theta] += 1
+
+    _, rho_val, theta_val = find_peak_params(A, [R, T], window, threshold)
+
+    theta_val = theta_val[:num_lines]
+    rho_val = rho_val[:num_lines]
+
     """ Your code ends here """
 
-    return rho_values, theta_values
+    return rho_val, theta_val
 
 
 """Helper functions: You should not have to touch the following functions.
